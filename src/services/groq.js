@@ -1,15 +1,21 @@
 import axios from 'axios';
+import { compressForWhisper } from '../utils/audioPreprocess';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1';
 
 export const transcribeAudio = async (file, apiKey, language = null) => {
     if (!apiKey) throw new Error("Groq API Key is missing. Please add it in settings.");
 
+    // ── Compress to 16kHz mono WAV before upload ──────────────────────
+    // Whisper resamples to 16kHz internally anyway.
+    // Sending raw video = uploading megabytes of useless video frames.
+    const compressed = await compressForWhisper(file);
+
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", compressed);
     formData.append("model", "whisper-large-v3-turbo");
     formData.append("response_format", "verbose_json");
-    if (language) formData.append("language", language); // e.g. 'hi' for Hindi
+    if (language) formData.append("language", language);
 
     try {
         const response = await axios.post(`${GROQ_API_URL}/audio/transcriptions`, formData, {
