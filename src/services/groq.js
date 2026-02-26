@@ -2,13 +2,14 @@ import axios from 'axios';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1';
 
-export const transcribeAudio = async (file, apiKey) => {
+export const transcribeAudio = async (file, apiKey, language = null) => {
     if (!apiKey) throw new Error("Groq API Key is missing. Please add it in settings.");
 
     const formData = new FormData();
     formData.append("file", file);
     formData.append("model", "whisper-large-v3-turbo");
     formData.append("response_format", "verbose_json");
+    if (language) formData.append("language", language); // e.g. 'hi' for Hindi
 
     try {
         const response = await axios.post(`${GROQ_API_URL}/audio/transcriptions`, formData, {
@@ -22,6 +23,37 @@ export const transcribeAudio = async (file, apiKey) => {
         console.error("Groq Transcription Error:", error);
         throw new Error(error.response?.data?.error?.message || "Failed to transcribe audio with Groq.");
     }
+};
+
+export const transliterateToHinglish = async (segments, apiKey) => {
+    if (!apiKey) throw new Error("Groq API Key is missing.");
+    // Batch all segment texts, separated by a unique delimiter
+    const SEP = '\n|||SEP|||\n';
+    const batch = segments.map(s => s.text.trim()).join(SEP);
+
+    const response = await axios.post(
+        `${GROQ_API_URL}/chat/completions`,
+        {
+            model: "llama-3.3-70b-versatile",
+            messages: [
+                {
+                    role: "system",
+                    content: `You are a Hindi-to-Hinglish transliterator. Convert each Hindi text chunk from Devanagari script into Hinglish (Hindi words written in Roman/English letters, as spoken naturally in Indian social media). Keep the same meaning and conversational flow. 
+Rules:
+- Do NOT translate to English — only transliterate sounds to Roman letters.
+- Preserve the "|||SEP|||" separator lines between chunks exactly.
+- Return ONLY the transliterated chunks with separators, no extra text.`
+                },
+                { role: "user", content: batch }
+            ],
+            temperature: 0.2,
+        },
+        { headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' } }
+    );
+
+    const result = response.data.choices[0].message.content;
+    const transliterated = result.split('|||SEP|||').map(t => t.trim());
+    return segments.map((seg, i) => ({ ...seg, text: transliterated[i] || seg.text }));
 };
 
 export const extractKeywords = async (transcript, apiKey) => {
